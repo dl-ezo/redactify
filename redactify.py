@@ -32,24 +32,24 @@ class AIAddressMatcher:
             logging.warning("AI機能が有効ですがAPIキーが設定されていません")
             self.ai_enabled = False
     
-    def find_similar_addresses(self, text, target_addresses):
+    def find_similar_patterns(self, text, target_patterns):
         """AIを使って類似する住所表現を検出"""
-        if not self.ai_enabled or not target_addresses:
+        if not self.ai_enabled or not target_patterns:
             return []
         
         try:
-            prompt = f"""以下のテキストから、指定された住所と類似する表現を全て抽出してください。
+            prompt = f"""以下のテキストから、指定されたパターンと類似する表現を全て抽出してください。
             
-対象住所: {', '.join(target_addresses)}
+対象パターン: {', '.join(target_patterns)}
             
 テキスト:
 {text}
             
 以下の条件で抽出してください：
-- 郵便番号、都道府県、市区町村、番地などが一部でも一致する表現
+- 指定されたパターンの一部でも一致する表現
 - 漢字、ひらがな、カタカナ、数字、記号の違いは無視
 - 表記揺れ（例：１と1、－と-、丁目と丁目）も含める
-- 完全一致でなくても、住所の一部が含まれていれば抽出
+- 完全一致でなくても、パターンの一部が含まれていれば抽出
             
 結果は以下のJSON形式で返してください：
 [["抽出されたテキスト1", 開始位置, 終了位置], ["抽出されたテキスト2", 開始位置, 終了位置], ...]
@@ -99,28 +99,24 @@ class AIAddressMatcher:
                 return []
                 
         except Exception as e:
-            logging.error(f"AI住所検出エラー: {e}")
+            logging.error(f"AIパターン検出エラー: {e}")
             return []
 
 class PDFRedactor:
     def __init__(self, config_path=None):
-        # デフォルトパターン
-        self.default_patterns = [
-            r'〒\d{3}-\d{4}',
-            r'神奈川県',
-            r'横浜市[^。、\s\n]*',
-            r'\d+[-−]\d+[-−]\d+[-−]\d+',
-        ]
-        
-        self.address_patterns = self.default_patterns.copy()
+        self.address_patterns = []
         self.input_dir = None
         self.output_dir = None
-        self.target_addresses = []
+        self.target_patterns = []
         self.ai_matcher = None
         
         # 設定ファイルがあれば読み込み
         if config_path and os.path.exists(config_path):
             self.load_config(config_path)
+        
+        # パターンが設定されていない場合はエラー
+        if not self.target_patterns and not self.address_patterns:
+            raise ValueError("エラー: target_patternsまたはlegacy_patternsを設定してください")
     
     def load_config(self, config_path):
         """設定ファイルから住所パターンを読み込み"""
@@ -137,9 +133,9 @@ class PDFRedactor:
             if 'ai_api' in config:
                 self.ai_matcher = AIAddressMatcher(config['ai_api'])
             
-            # ターゲット住所
-            if 'target_addresses' in config:
-                self.target_addresses = config['target_addresses']
+            # ターゲットパターン
+            if 'target_patterns' in config:
+                self.target_patterns = config['target_patterns']
             
             # レガシーパターンの読み込み（後方互換性）
             patterns = []
@@ -169,7 +165,7 @@ class PDFRedactor:
             if 'custom_patterns' in legacy_config:
                 patterns.extend(legacy_config['custom_patterns'])
             
-            # 設定があればデフォルトパターンと組み合わせ
+            # 設定があればパターンを設定
             if patterns:
                 self.address_patterns = patterns
                 
@@ -177,12 +173,12 @@ class PDFRedactor:
             click.echo(f"設定ファイル読み込みエラー: {e}", err=True)
         
     def detect_addresses(self, text):
-        """テキストから住所を検出"""
+        """テキストからパターンを検出"""
         addresses = []
         
         # AIファジーマッチングを先に実行
-        if self.ai_matcher and self.ai_matcher.ai_enabled and self.target_addresses:
-            ai_addresses = self.ai_matcher.find_similar_addresses(text, self.target_addresses)
+        if self.ai_matcher and self.ai_matcher.ai_enabled and self.target_patterns:
+            ai_addresses = self.ai_matcher.find_similar_patterns(text, self.target_patterns)
             addresses.extend(ai_addresses)
         
         # レガシーパターンマッチング
