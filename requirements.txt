@@ -1,0 +1,5 @@
+pypdf==4.0.1
+reportlab==4.0.8
+click==8.1.7
+pymupdf==1.24.14
+pillow==10.2.0
