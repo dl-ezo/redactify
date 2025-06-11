@@ -1,0 +1,25 @@
+{
+  "_comment": "PDFから個人情報を自動検出して黒塗りするツールの設定ファイル",
+  
+  "folders": {
+    "_comment": "入力・出力フォルダの設定",
+    "input_dir": "./input",
+    "output_dir": "./output"
+  },
+  
+  "ai_api": {
+    "_comment": "AI APIの設定（ファジーマッチング用）",
+    "provider": "anthropic",
+    "api_key": "ここにAPIキーを書く",
+    "model": "claude-3-haiku-20240307",
+    "enabled": true
+  },
+  
+  "target_patterns": [
+    "_comment": "AIが検出対象とするパターン例。完全な住所や個人情報を記載",
+    "111-1111 北海道札幌市○○○",
+    "090-1234-5678",
+    "example@email.com",
+    "田中太郎"
+  ]
+}
