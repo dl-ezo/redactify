@@ -1,0 +1,62 @@
+/* カスタムスタイル */
+body {
+    background-color: #f8f9fa;
+}
+
+.card {
+    border: none;
+    border-radius: 15px;
+}
+
+.card-header {
+    border-top-left-radius: 15px !important;
+    border-top-right-radius: 15px !important;
+    border-bottom: none;
+}
+
+.btn {
+    border-radius: 8px;
+}
+
+.form-control {
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.form-control:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+#fileList {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.file-item {
+    padding: 8px 12px;
+    margin: 4px 0;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    border-left: 4px solid #28a745;
+}
+
+.file-item.error {
+    border-left-color: #dc3545;
+    background-color: #f8d7da;
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
