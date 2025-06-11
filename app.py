@@ -5,20 +5,21 @@ PDFから個人情報を自動検出して黒塗りするWebアプリ
 """
 
 import os
-import tempfile
 import zipfile
-import shutil
-from flask import Flask, render_template, request, jsonify, send_file
+import io
+from flask import Flask, render_template, request, jsonify, send_file, Response
 from werkzeug.utils import secure_filename
 from redactify import PDFRedactor
 import json
+import uuid
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB制限
-app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
-app.config['OUTPUT_FOLDER'] = tempfile.mkdtemp()
 
 ALLOWED_EXTENSIONS = {'pdf'}
+
+# メモリ内でZIPファイルを一時保存
+memory_store = {}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -49,22 +50,6 @@ def upload_files():
         pdf_files = [f for f in files if f and allowed_file(f.filename)]
         if not pdf_files:
             return jsonify({'error': 'PDFファイルを選択してください'}), 400
-        
-        # セッション用の一時ディレクトリを作成
-        session_dir = tempfile.mkdtemp()
-        upload_dir = os.path.join(session_dir, 'uploads')
-        output_dir = os.path.join(session_dir, 'outputs')
-        os.makedirs(upload_dir)
-        os.makedirs(output_dir)
-        
-        # ファイルを保存
-        uploaded_files = []
-        for file in pdf_files:
-            if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                filepath = os.path.join(upload_dir, filename)
-                file.save(filepath)
-                uploaded_files.append(filepath)
         
         # AI設定を環境変数/.env優先で取得
         def get_bool_setting(env_var, default):
@@ -101,57 +86,59 @@ def upload_files():
             'api_key': api_key
         }
         
-        # 設定を作成
-        config = {
-            'target_patterns': patterns,
-            'folders': {
-                'input_dir': upload_dir,
-                'output_dir': output_dir
-            },
-            'ai_api': ai_config
-        }
+        # メモリ内でPDF処理
+        from redactify import AIAddressMatcher
+        ai_matcher = AIAddressMatcher(ai_config) if ai_config.get('enabled') else None
         
-        # 設定ファイルを作成
-        config_path = os.path.join(session_dir, 'config.json')
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-        
-        # 黒塗り処理
-        redactor = PDFRedactor(config_path)
         processed_files = []
         total_redacted = 0
+        zip_buffer = io.BytesIO()
         
-        print(f"DEBUG: Processing {len(uploaded_files)} files with patterns: {patterns}")
+        print(f"DEBUG: Processing {len(pdf_files)} files with patterns: {patterns}")
         
-        for filepath in uploaded_files:
-            try:
-                print(f"DEBUG: Processing {filepath}")
-                output_path, count = redactor.redact_pdf(filepath)
-                print(f"DEBUG: Found {count} matches in {filepath}")
-                processed_files.append({
-                    'original': os.path.basename(filepath),
-                    'output': output_path,
-                    'count': count
-                })
-                total_redacted += count
-            except Exception as e:
-                print(f"DEBUG: Error processing {filepath}: {e}")
-                processed_files.append({
-                    'original': os.path.basename(filepath),
-                    'error': str(e)
-                })
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file in pdf_files:
+                try:
+                    filename = secure_filename(file.filename)
+                    print(f"DEBUG: Processing {filename}")
+                    
+                    # メモリ内でPDF処理
+                    file_data = file.read()
+                    output_data, count = process_pdf_in_memory(file_data, patterns, ai_matcher)
+                    
+                    print(f"DEBUG: Found {count} matches in {filename}")
+                    
+                    # ZIPに追加
+                    output_filename = filename.replace('.pdf', '_redacted.pdf')
+                    zipf.writestr(output_filename, output_data)
+                    
+                    processed_files.append({
+                        'original': filename,
+                        'output': output_filename,
+                        'count': count
+                    })
+                    total_redacted += count
+                    
+                except Exception as e:
+                    print(f"DEBUG: Error processing {filename}: {e}")
+                    processed_files.append({
+                        'original': filename,
+                        'error': str(e)
+                    })
         
-        # ZIPファイルを作成
-        zip_path = os.path.join(session_dir, 'redacted_files.zip')
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for file_info in processed_files:
-                if 'output' in file_info:
-                    zipf.write(file_info['output'], os.path.basename(file_info['output']))
+        # セッションIDを生成してメモリに保存
+        session_id = str(uuid.uuid4())
+        zip_buffer.seek(0)
+        memory_store[session_id] = {
+            'data': zip_buffer.getvalue(),
+            'filename': 'redacted_files.zip',
+            'processed_files': processed_files,
+            'total_redacted': total_redacted
+        }
         
         return jsonify({
             'success': True,
-            'session_dir': session_dir,
-            'zip_path': zip_path,
+            'session_id': session_id,
             'processed_files': processed_files,
             'total_redacted': total_redacted
         })
@@ -159,26 +146,83 @@ def upload_files():
     except Exception as e:
         return jsonify({'error': f'処理中にエラーが発生しました: {str(e)}'}), 500
 
+def process_pdf_in_memory(pdf_data, patterns, ai_matcher):
+    """メモリ内でPDFを処理"""
+    import fitz
+    
+    # メモリからPDFを開く
+    doc = fitz.open(stream=pdf_data, filetype="pdf")
+    redacted_count = 0
+    
+    try:
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            
+            # 住所を検出
+            addresses = []
+            
+            # AIファジーマッチング
+            if ai_matcher and ai_matcher.ai_enabled:
+                ai_addresses = ai_matcher.find_similar_patterns(text, patterns)
+                addresses.extend(ai_addresses)
+            
+            # 基本パターンマッチング
+            import re
+            for pattern in patterns:
+                escaped_pattern = re.escape(pattern)
+                matches = re.finditer(escaped_pattern, text)
+                for match in matches:
+                    new_addr = {
+                        'text': match.group(),
+                        'start': match.start(),
+                        'end': match.end()
+                    }
+                    # 重複を避ける
+                    if not any(addr['text'] == new_addr['text'] for addr in addresses):
+                        addresses.append(new_addr)
+            
+            # 黒塗り実行
+            for addr in addresses:
+                text_instances = page.search_for(addr['text'])
+                for inst in text_instances:
+                    adjusted_rect = fitz.Rect(
+                        inst.x0 - 1, inst.y0 - 1,
+                        inst.x1 + 1, inst.y1 + 1
+                    )
+                    redact_annot = page.add_redact_annot(adjusted_rect)
+                    redact_annot.set_colors({"fill": (0, 0, 0)})
+                    redacted_count += 1
+            
+            # 黒塗りを適用
+            page.apply_redactions()
+        
+        # メモリ内でPDFを保存
+        output_data = doc.tobytes()
+        return output_data, redacted_count
+        
+    finally:
+        doc.close()
+
 @app.route('/download')
 def download_zip():
     try:
-        session_dir = request.args.get('session_dir')
-        if not session_dir:
+        session_id = request.args.get('session_id')
+        if not session_id:
             return jsonify({'error': 'セッションIDが指定されていません'}), 400
         
-        # セキュリティチェック
-        if not session_dir.startswith('/tmp/'):
-            return jsonify({'error': '不正なセッションです'}), 400
-        
-        zip_path = os.path.join(session_dir, 'redacted_files.zip')
-        if not os.path.exists(zip_path):
+        # メモリから取得
+        if session_id not in memory_store:
             return jsonify({'error': 'ファイルが見つかりません'}), 404
         
-        return send_file(
-            zip_path,
-            as_attachment=True,
-            download_name='redacted_files.zip',
-            mimetype='application/zip'
+        stored_data = memory_store[session_id]
+        
+        return Response(
+            stored_data['data'],
+            mimetype='application/zip',
+            headers={
+                'Content-Disposition': f'attachment; filename={stored_data["filename"]}'
+            }
         )
         
     except Exception as e:
@@ -188,17 +232,14 @@ def download_zip():
 def cleanup():
     try:
         data = request.get_json()
-        session_dir = data.get('session_dir') if data else None
+        session_id = data.get('session_id') if data else None
         
-        if not session_dir:
+        if not session_id:
             return jsonify({'error': 'セッションIDが指定されていません'}), 400
         
-        # セキュリティチェック
-        if not session_dir.startswith('/tmp/'):
-            return jsonify({'error': '不正なセッションです'}), 400
-        
-        if os.path.exists(session_dir):
-            shutil.rmtree(session_dir)
+        # メモリから削除
+        if session_id in memory_store:
+            del memory_store[session_id]
         
         return jsonify({'success': True})
         

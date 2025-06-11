@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const resetBtn = document.getElementById('resetBtn');
     const retryBtn = document.getElementById('retryBtn');
     
-    let currentSessionDir = null;
+    let currentSessionId = null;
     
     uploadForm.addEventListener('submit', function(e) {
         e.preventDefault();
@@ -40,8 +40,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     downloadBtn.addEventListener('click', function() {
-        if (currentSessionDir) {
-            const downloadUrl = `/download?session_dir=${encodeURIComponent(currentSessionDir)}`;
+        if (currentSessionId) {
+            const downloadUrl = `/download?session_id=${encodeURIComponent(currentSessionId)}`;
             window.location.href = downloadUrl;
         }
     });
@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     function showResults(data) {
-        currentSessionDir = data.session_dir;
+        currentSessionId = data.session_id;
         
         const resultSummary = document.getElementById('resultSummary');
         resultSummary.textContent = `${data.processed_files.length}個のファイルを処理し、合計${data.total_redacted}件の情報を黒塗りしました。`;
@@ -107,15 +107,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function resetForm() {
         // セッションをクリーンアップ
-        if (currentSessionDir) {
+        if (currentSessionId) {
             fetch('/cleanup', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({session_dir: currentSessionDir})
+                body: JSON.stringify({session_id: currentSessionId})
             }).catch(err => console.error('クリーンアップエラー:', err));
-            currentSessionDir = null;
+            currentSessionId = null;
         }
         
         // フォームとUIをリセット
@@ -138,8 +138,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // ページを離れる前にクリーンアップ
     window.addEventListener('beforeunload', function() {
-        if (currentSessionDir) {
-            const data = JSON.stringify({session_dir: currentSessionDir});
+        if (currentSessionId) {
+            const data = JSON.stringify({session_id: currentSessionId});
             navigator.sendBeacon('/cleanup', data);
         }
     });
