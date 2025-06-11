@@ -23,14 +23,28 @@ load_dotenv()
 class AIAddressMatcher:
     def __init__(self, config):
         self.config = config
-        self.ai_enabled = config.get('enabled', False)
-        self.provider = config.get('provider', 'anthropic')
-        self.api_key = config.get('api_key') or os.getenv('ANTHROPIC_API_KEY') or os.getenv('OPENAI_API_KEY')
-        self.model = config.get('model', 'claude-3-haiku-20240307')
+        
+        # 環境変数/.env優先、config.jsonでフォールバック
+        self.ai_enabled = self._get_bool_setting('AI_ENABLED', config.get('enabled', False))
+        self.provider = os.getenv('AI_PROVIDER') or config.get('provider', 'anthropic')
+        self.model = os.getenv('AI_MODEL') or config.get('model', 'claude-3-haiku-20240307')
+        
+        # APIキーの取得（プロバイダーに応じて適切な環境変数を使用）
+        if self.provider == 'openai':
+            self.api_key = os.getenv('OPENAI_API_KEY') or config.get('api_key')
+        else:  # anthropic
+            self.api_key = os.getenv('ANTHROPIC_API_KEY') or config.get('api_key')
         
         if self.ai_enabled and not self.api_key:
             logging.warning("AI機能が有効ですがAPIキーが設定されていません")
             self.ai_enabled = False
+    
+    def _get_bool_setting(self, env_var, default):
+        """環境変数からブール値を取得（'true'/'false'文字列を適切に変換）"""
+        env_value = os.getenv(env_var)
+        if env_value is not None:
+            return env_value.lower() in ('true', '1', 'yes', 'on')
+        return default
     
     def find_similar_patterns(self, text, target_patterns):
         """AIを使って類似する住所表現を検出"""

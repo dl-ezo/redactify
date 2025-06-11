@@ -26,29 +26,51 @@ pip install -r requirements.txt
 cp config.json.sample config.json
 ```
 
-### 2. APIキーの設定
+### 2. AI設定（環境変数優先）
 
-config.jsonを編集してAPIキーを設定：
-
-```json
-{
-  "ai_api": {
-    "provider": "anthropic",
-    "api_key": "sk-ant-api03-...",
-    "enabled": true
-  },
-  "target_patterns": [
-    "100-0001 東京都千代田区千代田１－１－１"
-  ]
-}
-```
-
-または環境変数で設定：
+.envファイルを作成（推奨）：
 
 ```bash
+cp .env.sample .env
+```
+
+.envファイルを編集：
+
+```bash
+# AI機能の有効/無効
+AI_ENABLED=true
+
+# AIプロバイダー（anthropic または openai）
+AI_PROVIDER=anthropic
+
+# AIモデル
+AI_MODEL=claude-3-haiku-20240307
+
+# APIキー
+ANTHROPIC_API_KEY=sk-ant-api03-...
+```
+
+または直接環境変数で設定：
+
+```bash
+export AI_ENABLED=true
+export AI_PROVIDER=anthropic
+export AI_MODEL=claude-3-haiku-20240307
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
-# または
 export OPENAI_API_KEY="sk-..."
+```
+
+**設定の優先度**: 環境変数/.env > config.json > デフォルト値
+
+これにより、本番環境では環境変数で設定を上書きしつつ、開発環境ではconfig.jsonを使用できます。
+
+### 3. OpenAI を使用する場合
+
+```bash
+# .envファイルまたは環境変数で設定
+AI_PROVIDER=openai
+AI_MODEL=gpt-3.5-turbo
+OPENAI_API_KEY=sk-...
 ```
 
 ## 使用方法

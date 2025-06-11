@@ -66,23 +66,40 @@ def upload_files():
                 file.save(filepath)
                 uploaded_files.append(filepath)
         
-        # 既存のconfig.jsonからAI設定を読み込み
-        ai_config = {
-            'provider': 'anthropic',
-            'api_key': os.getenv('ANTHROPIC_API_KEY'),
-            'model': 'claude-3-haiku-20240307',
-            'enabled': False
-        }
+        # AI設定を環境変数/.env優先で取得
+        def get_bool_setting(env_var, default):
+            env_value = os.getenv(env_var)
+            if env_value is not None:
+                return env_value.lower() in ('true', '1', 'yes', 'on')
+            return default
         
-        # config.jsonが存在する場合、AI設定を読み込み
+        # config.jsonからデフォルト設定を読み込み
+        config_ai_settings = {}
         if os.path.exists('./config.json'):
             try:
                 with open('./config.json', 'r', encoding='utf-8') as f:
                     existing_config = json.load(f)
-                    if 'ai_api' in existing_config:
-                        ai_config.update(existing_config['ai_api'])
+                    config_ai_settings = existing_config.get('ai_api', {})
             except Exception as e:
                 print(f"DEBUG: config.json読み込みエラー: {e}")
+        
+        # 環境変数/.env優先、config.jsonでフォールバック
+        provider = os.getenv('AI_PROVIDER') or config_ai_settings.get('provider', 'anthropic')
+        model = os.getenv('AI_MODEL') or config_ai_settings.get('model', 'claude-3-haiku-20240307')
+        enabled = get_bool_setting('AI_ENABLED', config_ai_settings.get('enabled', False))
+        
+        # APIキーの取得（プロバイダーに応じて適切な環境変数を使用）
+        if provider == 'openai':
+            api_key = os.getenv('OPENAI_API_KEY') or config_ai_settings.get('api_key')
+        else:  # anthropic
+            api_key = os.getenv('ANTHROPIC_API_KEY') or config_ai_settings.get('api_key')
+        
+        ai_config = {
+            'provider': provider,
+            'model': model,
+            'enabled': enabled,
+            'api_key': api_key
+        }
         
         # 設定を作成
         config = {

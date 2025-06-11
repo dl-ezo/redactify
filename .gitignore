@@ -1,5 +1,6 @@
 # config
 config.json
+.env
 
 # PDFファイル（サンプルや機密情報を含む可能性）
 *.pdf
