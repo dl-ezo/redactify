@@ -30,9 +30,24 @@ jobs:
         run: |
           echo "No tests yet"
           
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
       - name: Deploy to Heroku
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           git push https://heroku:${{ secrets.HEROKU_API_KEY }}@git.heroku.com/ezo-redactify.git HEAD:main --force
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          
+      - name: Set version on Heroku
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          curl -X PATCH https://api.heroku.com/apps/ezo-redactify/config-vars \
+            -H "Accept: application/vnd.heroku+json; version=3" \
+            -H "Authorization: Bearer ${{ secrets.HEROKU_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"APP_VERSION": "${{ steps.version.outputs.version }}"}'

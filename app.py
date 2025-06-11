@@ -15,9 +15,14 @@ import json
 import uuid
 
 def get_version():
-    """GitタグからバージョンIを動的取得"""
+    """バージョンを取得（環境変数優先、Gitフォールバック）"""
+    # 環境変数を最優先
+    env_version = os.getenv('APP_VERSION')
+    if env_version:
+        return env_version
+    
     try:
-        # 最新のGitタグを取得
+        # Git タグから取得（ローカル開発時）
         result = subprocess.run(
             ['git', 'describe', '--tags', '--abbrev=0'],
             capture_output=True, text=True, cwd=os.getcwd(), timeout=5
