@@ -335,6 +335,10 @@ def get_pdf_files(redactor):
 def main(input_file, output, preview, config, image, all):
     """PDFから個人情報（住所）を自動検出して黒塗りします"""
     
+    # --configが指定されていない場合、カレントディレクトリのconfig.jsonを探す
+    if not config and os.path.exists('./config.json'):
+        config = './config.json'
+    
     redactor = PDFRedactor(config)
     
     # すべてのPDFを処理するか、特定のファイルのみか判定
