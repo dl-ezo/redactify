@@ -24,6 +24,8 @@ class PDFRedactor:
         ]
         
         self.address_patterns = self.default_patterns.copy()
+        self.input_dir = None
+        self.output_dir = None
         
         # 設定ファイルがあれば読み込み
         if config_path and os.path.exists(config_path):
@@ -36,6 +38,11 @@ class PDFRedactor:
                 config = json.load(f)
             
             patterns = []
+            
+            # フォルダ設定
+            if 'folders' in config:
+                self.input_dir = config['folders'].get('input_dir')
+                self.output_dir = config['folders'].get('output_dir')
             
             # 郵便番号パターン
             if 'postal_codes' in config:
@@ -84,8 +91,13 @@ class PDFRedactor:
     def redact_to_image(self, input_path, output_path=None, dpi=300):
         """PDFを画像に変換してから住所を黒塗り"""
         if not output_path:
-            name, ext = os.path.splitext(input_path)
-            output_path = f"{name}_redacted.png"
+            name, ext = os.path.splitext(os.path.basename(input_path))
+            if self.output_dir:
+                # 出力フォルダが設定されている場合
+                os.makedirs(self.output_dir, exist_ok=True)
+                output_path = os.path.join(self.output_dir, f"{name}_redacted.png")
+            else:
+                output_path = f"{name}_redacted.png"
         
         doc = fitz.open(input_path)
         redacted_count = 0
@@ -132,8 +144,13 @@ class PDFRedactor:
     def redact_pdf(self, input_path, output_path=None):
         """PDFから住所を検出して黒塗り（PDF出力）"""
         if not output_path:
-            name, ext = os.path.splitext(input_path)
-            output_path = f"{name}_redacted{ext}"
+            name, ext = os.path.splitext(os.path.basename(input_path))
+            if self.output_dir:
+                # 出力フォルダが設定されている場合
+                os.makedirs(self.output_dir, exist_ok=True)
+                output_path = os.path.join(self.output_dir, f"{name}_redacted{ext}")
+            else:
+                output_path = f"{name}_redacted{ext}"
         
         doc = fitz.open(input_path)
         redacted_count = 0
@@ -170,58 +187,156 @@ class PDFRedactor:
         return output_path, redacted_count
 
 
+def resolve_input_path(redactor, input_file):
+    """入力ファイルパスを解決"""
+    if os.path.isabs(input_file) or redactor.input_dir is None:
+        return input_file
+    
+    # 設定で入力フォルダが指定されている場合
+    resolved_path = os.path.join(redactor.input_dir, os.path.basename(input_file))
+    if os.path.exists(resolved_path):
+        return resolved_path
+    
+    # 元のパスが存在する場合はそちらを使用
+    if os.path.exists(input_file):
+        return input_file
+    
+    return resolved_path
+
+def get_pdf_files(redactor):
+    """入力フォルダからすべてのPDFファイルを取得"""
+    input_dir = redactor.input_dir or './input'
+    
+    if not os.path.exists(input_dir):
+        return []
+    
+    pdf_files = []
+    for filename in os.listdir(input_dir):
+        if filename.lower().endswith('.pdf'):
+            pdf_files.append(os.path.join(input_dir, filename))
+    
+    return sorted(pdf_files)
+
 @click.command()
-@click.argument('input_file', type=click.Path(exists=True))
-@click.option('--output', '-o', help='出力ファイル名（省略時は元ファイル名_redacted.pdf/.png）')
+@click.argument('input_file', type=click.Path(), required=False)
+@click.option('--output', '-o', help='出力ファイル名（省略時は設定フォルダまたは元ファイル名_redacted）')
 @click.option('--preview', '-p', is_flag=True, help='検出された住所をプレビュー表示')
 @click.option('--config', '-c', help='設定ファイルのパス（JSON形式）')
 @click.option('--image', '-i', is_flag=True, help='画像として出力（PNG形式）')
-def main(input_file, output, preview, config, image):
+@click.option('--all', '-a', is_flag=True, help='入力フォルダ内のすべてのPDFを処理')
+def main(input_file, output, preview, config, image, all):
     """PDFから個人情報（住所）を自動検出して黒塗りします"""
-    
-    if not input_file.lower().endswith('.pdf'):
-        click.echo("エラー: PDFファイルを指定してください", err=True)
-        sys.exit(1)
     
     redactor = PDFRedactor(config)
     
-    if preview:
-        # プレビューモード：検出された住所を表示
-        doc = fitz.open(input_file)
-        found_addresses = []
-        
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            text = page.get_text()
-            addresses = redactor.detect_addresses(text)
-            
-            for addr in addresses:
-                found_addresses.append(f"ページ{page_num + 1}: {addr['text']}")
-        
-        doc.close()
-        
-        if found_addresses:
-            click.echo("検出された住所:")
-            for addr in found_addresses:
-                click.echo(f"  - {addr}")
-            click.echo(f"\n合計 {len(found_addresses)} 件の住所が検出されました")
-        else:
-            click.echo("住所は検出されませんでした")
-    else:
-        # 黒塗り実行
-        try:
-            if image:
-                # 画像として出力
-                output_path, count = redactor.redact_to_image(input_file, output)
-            else:
-                # PDFとして出力
-                output_path, count = redactor.redact_pdf(input_file, output)
-            
-            click.echo(f"✓ 完了: {count} 件の住所を黒塗りしました")
-            click.echo(f"✓ 出力: {output_path}")
-        except Exception as e:
-            click.echo(f"エラー: {e}", err=True)
+    # すべてのPDFを処理するか、特定のファイルのみか判定
+    if all or not input_file:
+        pdf_files = get_pdf_files(redactor)
+        if not pdf_files:
+            input_dir = redactor.input_dir or './input'
+            click.echo(f"エラー: {input_dir} にPDFファイルが見つかりません", err=True)
             sys.exit(1)
+        
+        click.echo(f"{len(pdf_files)} 個のPDFファイルを処理します:")
+        for pdf_file in pdf_files:
+            click.echo(f"  - {os.path.basename(pdf_file)}")
+        
+        if preview:
+            # プレビューモード：すべてのファイルの住所を表示
+            total_addresses = 0
+            for pdf_file in pdf_files:
+                click.echo(f"\n--- {os.path.basename(pdf_file)} ---")
+                found_addresses = []
+                
+                doc = fitz.open(pdf_file)
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    text = page.get_text()
+                    addresses = redactor.detect_addresses(text)
+                    
+                    for addr in addresses:
+                        found_addresses.append(f"ページ{page_num + 1}: {addr['text']}")
+                
+                doc.close()
+                
+                if found_addresses:
+                    for addr in found_addresses:
+                        click.echo(f"  - {addr}")
+                    click.echo(f"このファイルで {len(found_addresses)} 件の住所が検出されました")
+                    total_addresses += len(found_addresses)
+                else:
+                    click.echo("  住所は検出されませんでした")
+            
+            click.echo(f"\n合計 {total_addresses} 件の住所が検出されました")
+        else:
+            # 黒塗り実行：すべてのファイル
+            total_redacted = 0
+            success_count = 0
+            
+            for pdf_file in pdf_files:
+                try:
+                    if image:
+                        output_path, count = redactor.redact_to_image(pdf_file)
+                    else:
+                        output_path, count = redactor.redact_pdf(pdf_file)
+                    
+                    click.echo(f"✓ {os.path.basename(pdf_file)}: {count} 件の住所を黒塗り → {os.path.basename(output_path)}")
+                    total_redacted += count
+                    success_count += 1
+                except Exception as e:
+                    click.echo(f"✗ {os.path.basename(pdf_file)}: エラー - {e}", err=True)
+            
+            click.echo(f"\n完了: {success_count}/{len(pdf_files)} ファイル処理済み、合計 {total_redacted} 件の住所を黒塗りしました")
+    
+    else:
+        # 単一ファイル処理（従来の動作）
+        if not input_file.lower().endswith('.pdf'):
+            click.echo("エラー: PDFファイルを指定してください", err=True)
+            sys.exit(1)
+        
+        # 入力ファイルパスを解決
+        resolved_input = resolve_input_path(redactor, input_file)
+        if not os.path.exists(resolved_input):
+            click.echo(f"エラー: ファイルが見つかりません: {resolved_input}", err=True)
+            sys.exit(1)
+        
+        if preview:
+            # プレビューモード：検出された住所を表示
+            doc = fitz.open(resolved_input)
+            found_addresses = []
+            
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                text = page.get_text()
+                addresses = redactor.detect_addresses(text)
+                
+                for addr in addresses:
+                    found_addresses.append(f"ページ{page_num + 1}: {addr['text']}")
+            
+            doc.close()
+            
+            if found_addresses:
+                click.echo("検出された住所:")
+                for addr in found_addresses:
+                    click.echo(f"  - {addr}")
+                click.echo(f"\n合計 {len(found_addresses)} 件の住所が検出されました")
+            else:
+                click.echo("住所は検出されませんでした")
+        else:
+            # 黒塗り実行
+            try:
+                if image:
+                    # 画像として出力
+                    output_path, count = redactor.redact_to_image(resolved_input, output)
+                else:
+                    # PDFとして出力
+                    output_path, count = redactor.redact_pdf(resolved_input, output)
+                
+                click.echo(f"✓ 完了: {count} 件の住所を黒塗りしました")
+                click.echo(f"✓ 出力: {output_path}")
+            except Exception as e:
+                click.echo(f"エラー: {e}", err=True)
+                sys.exit(1)
 
 
 if __name__ == '__main__':
