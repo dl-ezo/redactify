@@ -9,6 +9,9 @@ PDFから個人情報を自動検出して黒塗りするツール
 - **一括処理**: フォルダ内のすべてのPDFを自動処理
 - **プレビューモード**: 検出結果を事前確認
 - **柔軟な出力**: PDF形式または画像形式で出力
+- **CLI + Web両対応**: コマンドライン・Webブラウザ両方で利用可能
+- **メモリベース処理**: ファイルがサーバーに残らない安全設計
+- **自動バージョン管理**: Gitタグベースの動的バージョン表示
 
 ## インストール
 
@@ -75,7 +78,23 @@ OPENAI_API_KEY=sk-...
 
 ## 使用方法
 
-### 基本的な使用方法
+### Webアプリケーション（推奨）
+
+```bash
+# Webサーバーを起動
+python app.py
+```
+
+ブラウザで `http://localhost:5000` にアクセスして利用：
+
+1. 「消したい情報」欄に黒塗りしたい情報を入力
+2. PDFファイルを選択（複数可）
+3. 「黒塗り処理を開始」ボタンをクリック
+4. 処理完了後、ZIPファイルをダウンロード
+
+**セキュリティ**: アップロードファイルはメモリ内で処理され、サーバーに保存されません。
+
+### コマンドライン（CLI）
 
 ```bash
 # プレビューモード（検出確認）
@@ -172,7 +191,13 @@ python redactify.py --all
 - **高速**: 大量処理に適している
 - **例**: `〒\d{3}-\d{4}` で郵便番号形式を確実に検出
 
-## 安全性
+## セキュリティ
+
+### プライバシー保護
+- **メモリベース処理**: アップロードファイルがサーバーに保存されない
+- **一時ファイル不使用**: ディスクI/Oを使わないメモリ内処理
+- **自動クリーンアップ**: 処理完了後にメモリから自動削除
+- **セッション管理**: ユーザーごとに独立したメモリ領域
 
 ### 真の黒塗り
 - **PyMuPDF**: `apply_redactions()`による物理的なテキスト削除
@@ -232,7 +257,38 @@ python redactify.py --config config.json --preview
 
 MIT License
 
-## 貢献
+## 開発
+
+### リリース管理
+
+バージョンはGitタグで管理され、Webアプリケーションに自動反映されます：
+
+```bash
+# 新バージョンをリリース
+git tag -a v0.2.0 -m "新機能の追加"
+git push origin --tags
+
+# アプリを再起動すると自動的にバージョン表示が更新される
+```
+
+### 自動デプロイ
+
+GitHub Actionsにより、mainブランチへのpushで自動デプロイされます：
+
+1. GitHub Secretsの設定が必要：
+   - `HEROKU_API_KEY`: HerokuのAPIキー
+   - `HEROKU_APP_NAME`: Herokuアプリ名
+   - `HEROKU_EMAIL`: Herokuアカウントのメール
+
+2. 環境変数の設定：
+   ```bash
+   # Herokuアプリに環境変数を設定
+   heroku config:set AI_ENABLED=true --app your-app-name
+   heroku config:set AI_PROVIDER=anthropic --app your-app-name
+   heroku config:set ANTHROPIC_API_KEY=your-key --app your-app-name
+   ```
+
+### 貢献
 
 プルリクエストやイシューを歓迎します。
 
