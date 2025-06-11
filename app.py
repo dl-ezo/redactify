@@ -7,14 +7,40 @@ PDFから個人情報を自動検出して黒塗りするWebアプリ
 import os
 import zipfile
 import io
+import subprocess
 from flask import Flask, render_template, request, jsonify, send_file, Response
 from werkzeug.utils import secure_filename
 from redactify import PDFRedactor
 import json
 import uuid
 
+def get_version():
+    """GitタグからバージョンIを動的取得"""
+    try:
+        # 最新のGitタグを取得
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--abbrev=0'],
+            capture_output=True, text=True, cwd=os.getcwd(), timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        else:
+            # フォールバック: コミットハッシュ
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True, text=True, timeout=5
+            )
+            return f"dev-{result.stdout.strip()}" if result.returncode == 0 else "dev"
+    except Exception as e:
+        print(f"Version detection error: {e}")
+        return "dev"
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB制限
+
+# アプリ起動時にバージョンを取得
+app.config['VERSION'] = get_version()
+print(f"Redactify starting with version: {app.config['VERSION']}")
 
 ALLOWED_EXTENSIONS = {'pdf'}
 
@@ -26,7 +52,7 @@ def allowed_file(filename):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', version=app.config['VERSION'])
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
