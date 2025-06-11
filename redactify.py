@@ -11,7 +11,96 @@ import json
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw
 from io import BytesIO
+import anthropic
+import openai
+from dotenv import load_dotenv
+import logging
 
+
+# 環境変数を読み込み
+load_dotenv()
+
+class AIAddressMatcher:
+    def __init__(self, config):
+        self.config = config
+        self.ai_enabled = config.get('enabled', False)
+        self.provider = config.get('provider', 'anthropic')
+        self.api_key = config.get('api_key') or os.getenv('ANTHROPIC_API_KEY') or os.getenv('OPENAI_API_KEY')
+        self.model = config.get('model', 'claude-3-haiku-20240307')
+        
+        if self.ai_enabled and not self.api_key:
+            logging.warning("AI機能が有効ですがAPIキーが設定されていません")
+            self.ai_enabled = False
+    
+    def find_similar_addresses(self, text, target_addresses):
+        """AIを使って類似する住所表現を検出"""
+        if not self.ai_enabled or not target_addresses:
+            return []
+        
+        try:
+            prompt = f"""以下のテキストから、指定された住所と類似する表現を全て抽出してください。
+            
+対象住所: {', '.join(target_addresses)}
+            
+テキスト:
+{text}
+            
+以下の条件で抽出してください：
+- 郵便番号、都道府県、市区町村、番地などが一部でも一致する表現
+- 漢字、ひらがな、カタカナ、数字、記号の違いは無視
+- 表記揺れ（例：１と1、－と-、丁目と丁目）も含める
+- 完全一致でなくても、住所の一部が含まれていれば抽出
+            
+結果は以下のJSON形式で返してください：
+[["抽出されたテキスト1", 開始位置, 終了位置], ["抽出されたテキスト2", 開始位置, 終了位置], ...]
+            
+該当なしの場合は空配列[]を返してください。"""
+            
+            if self.provider == 'anthropic':
+                client = anthropic.Anthropic(api_key=self.api_key)
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=1000,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                result_text = response.content[0].text
+            else:  # OpenAI
+                client = openai.OpenAI(api_key=self.api_key)
+                response = client.chat.completions.create(
+                    model=self.model if 'gpt' in self.model else 'gpt-3.5-turbo',
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=1000
+                )
+                result_text = response.choices[0].message.content
+            
+            # JSONをパース（JSON部分のみ抽出）
+            try:
+                # JSON配列の開始と終了を見つける
+                start_idx = result_text.find('[')
+                end_idx = result_text.rfind(']') + 1
+                
+                if start_idx != -1 and end_idx > start_idx:
+                    json_str = result_text[start_idx:end_idx]
+                    matches = json.loads(json_str)
+                    addresses = []
+                    for match in matches:
+                        if len(match) >= 3:
+                            addresses.append({
+                                'text': match[0],
+                                'start': match[1],
+                                'end': match[2]
+                            })
+                    return addresses
+                else:
+                    logging.error(f"AI応答にJSON配列が見つかりません: {result_text}")
+                    return []
+            except json.JSONDecodeError:
+                logging.error(f"AI応答のJSONパースに失敗: {result_text}")
+                return []
+                
+        except Exception as e:
+            logging.error(f"AI住所検出エラー: {e}")
+            return []
 
 class PDFRedactor:
     def __init__(self, config_path=None):
@@ -26,6 +115,8 @@ class PDFRedactor:
         self.address_patterns = self.default_patterns.copy()
         self.input_dir = None
         self.output_dir = None
+        self.target_addresses = []
+        self.ai_matcher = None
         
         # 設定ファイルがあれば読み込み
         if config_path and os.path.exists(config_path):
@@ -37,36 +128,46 @@ class PDFRedactor:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             
-            patterns = []
-            
             # フォルダ設定
             if 'folders' in config:
                 self.input_dir = config['folders'].get('input_dir')
                 self.output_dir = config['folders'].get('output_dir')
             
+            # AI設定
+            if 'ai_api' in config:
+                self.ai_matcher = AIAddressMatcher(config['ai_api'])
+            
+            # ターゲット住所
+            if 'target_addresses' in config:
+                self.target_addresses = config['target_addresses']
+            
+            # レガシーパターンの読み込み（後方互換性）
+            patterns = []
+            legacy_config = config.get('legacy_patterns', config)  # legacy_patternsがない場合はルートを使用
+            
             # 郵便番号パターン
-            if 'postal_codes' in config:
-                for code in config['postal_codes']:
+            if 'postal_codes' in legacy_config:
+                for code in legacy_config['postal_codes']:
                     patterns.append(re.escape(code))
             
             # 都道府県パターン
-            if 'prefectures' in config:
-                for pref in config['prefectures']:
+            if 'prefectures' in legacy_config:
+                for pref in legacy_config['prefectures']:
                     patterns.append(re.escape(pref))
             
             # 市区町村パターン
-            if 'cities' in config:
-                for city in config['cities']:
+            if 'cities' in legacy_config:
+                for city in legacy_config['cities']:
                     patterns.append(re.escape(city))
             
             # 住所パターン
-            if 'addresses' in config:
-                for addr in config['addresses']:
+            if 'addresses' in legacy_config:
+                for addr in legacy_config['addresses']:
                     patterns.append(re.escape(addr))
             
             # カスタムパターン（正規表現）
-            if 'custom_patterns' in config:
-                patterns.extend(config['custom_patterns'])
+            if 'custom_patterns' in legacy_config:
+                patterns.extend(legacy_config['custom_patterns'])
             
             # 設定があればデフォルトパターンと組み合わせ
             if patterns:
@@ -78,14 +179,25 @@ class PDFRedactor:
     def detect_addresses(self, text):
         """テキストから住所を検出"""
         addresses = []
+        
+        # AIファジーマッチングを先に実行
+        if self.ai_matcher and self.ai_matcher.ai_enabled and self.target_addresses:
+            ai_addresses = self.ai_matcher.find_similar_addresses(text, self.target_addresses)
+            addresses.extend(ai_addresses)
+        
+        # レガシーパターンマッチング
         for pattern in self.address_patterns:
             matches = re.finditer(pattern, text)
             for match in matches:
-                addresses.append({
+                new_addr = {
                     'text': match.group(),
                     'start': match.start(),
                     'end': match.end()
-                })
+                }
+                # 重複を避けるため、既に同じテキストがないかチェック
+                if not any(addr['text'] == new_addr['text'] for addr in addresses):
+                    addresses.append(new_addr)
+        
         return addresses
     
     def redact_to_image(self, input_path, output_path=None, dpi=300):
