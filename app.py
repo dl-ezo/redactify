@@ -226,10 +226,20 @@ def process_pdf_in_memory(pdf_data, patterns, ai_matcher):
                     redacted_count += 1
             
             # 黒塗りを適用
-            page.apply_redactions()
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
         
-        # メモリ内でPDFを保存
-        output_data = doc.tobytes()
+        # フォント情報を修復
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page.clean_contents()
+        
+        # メモリ内でPDFを保存（Mac Preview対応）
+        output_data = doc.tobytes(
+            garbage=0,
+            clean=False,
+            deflate=False,
+            ascii=False
+        )
         return output_data, redacted_count
         
     finally:
