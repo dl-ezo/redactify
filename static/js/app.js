@@ -6,8 +6,39 @@ document.addEventListener('DOMContentLoaded', function() {
     const downloadBtn = document.getElementById('downloadBtn');
     const resetBtn = document.getElementById('resetBtn');
     const retryBtn = document.getElementById('retryBtn');
-    
+    const saveDefaultBtn = document.getElementById('saveDefaultBtn');
+    const clearDefaultBtn = document.getElementById('clearDefaultBtn');
+    const targetPatterns = document.getElementById('targetPatterns');
+
+    const STORAGE_KEY = 'redactify_default_patterns';
+
     let currentSessionId = null;
+
+    // デフォルト値をロード
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+        targetPatterns.value = saved;
+        clearDefaultBtn.style.display = '';
+    }
+
+    saveDefaultBtn.addEventListener('click', function() {
+        const value = targetPatterns.value.trim();
+        if (!value) {
+            alert('デフォルトとして保存する内容を入力してください。');
+            return;
+        }
+        localStorage.setItem(STORAGE_KEY, value);
+        clearDefaultBtn.style.display = '';
+        saveDefaultBtn.innerHTML = '<i class="fas fa-check"></i> 保存しました';
+        setTimeout(() => {
+            saveDefaultBtn.innerHTML = '<i class="fas fa-bookmark"></i> デフォルトとして保存';
+        }, 2000);
+    });
+
+    clearDefaultBtn.addEventListener('click', function() {
+        localStorage.removeItem(STORAGE_KEY);
+        clearDefaultBtn.style.display = 'none';
+    });
     
     uploadForm.addEventListener('submit', function(e) {
         e.preventDefault();

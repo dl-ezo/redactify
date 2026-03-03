@@ -23,17 +23,27 @@
                                 <label for="targetPatterns" class="form-label">
                                     <i class="fas fa-crosshairs"></i> 消したい情報
                                 </label>
-                                <textarea 
-                                    class="form-control" 
-                                    id="targetPatterns" 
-                                    name="target_patterns" 
-                                    rows="4" 
-                                    placeholder="住所、電話番号、メールアドレスなど、消したい情報を1行ずつ入力してください&#10;例：&#10;東京都渋谷区&#10;03-1234-5678&#10;example@example.com" 
+                                <textarea
+                                    class="form-control"
+                                    id="targetPatterns"
+                                    name="target_patterns"
+                                    rows="4"
+                                    placeholder="住所、電話番号、メールアドレスなど、消したい情報を1行ずつ入力してください&#10;例：&#10;東京都渋谷区&#10;03-1234-5678&#10;example@example.com"
                                     required
                                 ></textarea>
-                                <div class="form-text">
-                                    <i class="fas fa-info-circle"></i> 
-                                    各行に消したい情報を入力してください。AIが類似パターンも自動検出します。
+                                <div class="d-flex justify-content-between align-items-center mt-1">
+                                    <div class="form-text">
+                                        <i class="fas fa-info-circle"></i>
+                                        各行に消したい情報を入力してください。AIが類似パターンも自動検出します。
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="saveDefaultBtn">
+                                            <i class="fas fa-bookmark"></i> デフォルトとして保存
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" id="clearDefaultBtn" style="display: none;">
+                                            <i class="fas fa-times"></i> デフォルトを削除
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             
